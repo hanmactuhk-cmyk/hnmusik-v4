@@ -7,70 +7,82 @@ on:
     branches:
       - main
 
-  pull_request:
-    branches:
-      - main
-
 jobs:
   build-windows:
-    name: Build Windows x64
+    name: Build HNStudio Musik AI - Windows x64
     runs-on: windows-latest
 
     steps:
-      # 1. Lấy source code
       - name: Checkout source
         uses: actions/checkout@v4
 
-      # 2. Cài CMake
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Setup CMake
         uses: lukka/get-cmake@v3.30.2
 
-      # 3. Configure project
+      - name: Check compiler
+        shell: cmd
+        run: |
+          cl
+          cmake --version
+          ninja --version
+
       - name: Configure CMake
+        shell: cmd
         run: |
-          cmake -S . -B build `
-            -G "Visual Studio 17 2022" `
-            -A x64
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
-      # 4. Build Release
       - name: Build HNStudio Musik AI
+        shell: cmd
         run: |
-          cmake --build build `
-            --config Release `
-            --parallel
+          cmake --build build --parallel
 
-      # 5. Tìm file EXE và gom thành package
-      - name: Prepare Windows package
+      - name: Find EXE
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Write-Host "Searching for HNStudio EXE..."
 
           $exe = Get-ChildItem `
             -Path build `
             -Filter "*.exe" `
             -Recurse |
-            Where-Object {
-              $_.FullName -match "Release"
-            } |
             Select-Object -First 1
 
           if (-not $exe) {
-            Write-Host "Không tìm thấy file EXE."
+            Write-Host "ERROR: EXE not found."
             Get-ChildItem build -Recurse
             exit 1
           }
 
-          Write-Host "EXE found: $($exe.FullName)"
-          Copy-Item $exe.FullName "package\HNStudio-Musik-AI.exe"
+          Write-Host "Found:"
+          Write-Host $exe.FullName
 
-          # Copy DLL nếu có
-          Get-ChildItem `
-            -Path $exe.Directory.FullName `
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+
+          Copy-Item `
+            $exe.FullName `
+            "package\HNStudio-Musik-AI.exe"
+
+      - name: Copy runtime files
+        shell: powershell
+        run: |
+          $dlls = Get-ChildItem `
+            -Path build `
             -Filter "*.dll" `
-            -ErrorAction SilentlyContinue |
-            Copy-Item -Destination package -Force
+            -Recurse `
+            -ErrorAction SilentlyContinue
 
-      # 6. Đóng gói ZIP
+          foreach ($dll in $dlls) {
+            Copy-Item `
+              $dll.FullName `
+              "package\" `
+              -Force
+          }
+
       - name: Create ZIP
         shell: powershell
         run: |
@@ -79,8 +91,7 @@ jobs:
             -DestinationPath HNStudio-Musik-AI-Windows-x64.zip `
             -Force
 
-      # 7. Upload bản build để tải xuống
-      - name: Upload Windows EXE
+      - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
           name: HNStudio-Musik-AI-Windows-x64
