@@ -1,0 +1,90 @@
+name: Build HNStudio Musik AI
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-windows:
+    name: Build Windows x64
+    runs-on: windows-latest
+
+    steps:
+      # 1. Lấy source code
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # 2. Cài CMake
+      - name: Setup CMake
+        uses: lukka/get-cmake@v3.30.2
+
+      # 3. Configure project
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64
+
+      # 4. Build Release
+      - name: Build HNStudio Musik AI
+        run: |
+          cmake --build build `
+            --config Release `
+            --parallel
+
+      # 5. Tìm file EXE và gom thành package
+      - name: Prepare Windows package
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+
+          $exe = Get-ChildItem `
+            -Path build `
+            -Filter "*.exe" `
+            -Recurse |
+            Where-Object {
+              $_.FullName -match "Release"
+            } |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            Write-Host "Không tìm thấy file EXE."
+            Get-ChildItem build -Recurse
+            exit 1
+          }
+
+          Write-Host "EXE found: $($exe.FullName)"
+          Copy-Item $exe.FullName "package\HNStudio-Musik-AI.exe"
+
+          # Copy DLL nếu có
+          Get-ChildItem `
+            -Path $exe.Directory.FullName `
+            -Filter "*.dll" `
+            -ErrorAction SilentlyContinue |
+            Copy-Item -Destination package -Force
+
+      # 6. Đóng gói ZIP
+      - name: Create ZIP
+        shell: powershell
+        run: |
+          Compress-Archive `
+            -Path package\* `
+            -DestinationPath HNStudio-Musik-AI-Windows-x64.zip `
+            -Force
+
+      # 7. Upload bản build để tải xuống
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNStudio-Musik-AI-Windows-x64
+          path: |
+            package/*
+            HNStudio-Musik-AI-Windows-x64.zip
+          if-no-files-found: error
